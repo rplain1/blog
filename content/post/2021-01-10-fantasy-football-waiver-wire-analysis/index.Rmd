@@ -351,7 +351,7 @@ p <- dat %>%
 
 ```
 <center>
-```{r, echo=FALSE}
+```{r, echo=FALSE, out.width="90%"}
 p
 ```
 
@@ -359,7 +359,7 @@ p
 
 Wow! My name is Ryan, and I have a spending problem. I spent more budget on players that no one else bid on than half of the league did in total. 
 
-```{r}
+```{r, out.width="90%"}
 dat %>% 
   arrange(-no_opposition) %>% 
   select(Name = display_name, `Total Bid` = total_spent, Player = full_name, Bid = max_bid, `Only Bidder` = no_opposition) %>% 
