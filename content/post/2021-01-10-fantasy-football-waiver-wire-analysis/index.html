@@ -1,0 +1,1682 @@
+---
+title: Fantasy Football Waiver Wire Analysis
+author: Ryan Plain
+date: '2021-01-10'
+slug: fantasy-football-waiver-wire-analysis
+categories:
+  - Blog
+tags:
+  - R
+  - Fantasy Football
+  - Python
+---
+
+<script src="index_files/header-attrs/header-attrs.js"></script>
+<link href="index_files/anchor-sections/anchor-sections.css" rel="stylesheet" />
+<script src="index_files/anchor-sections/anchor-sections.js"></script>
+<script src="index_files/kePrint/kePrint.js"></script>
+<link href="index_files/lightable/lightable.css" rel="stylesheet" />
+
+
+<div id="fantasy-football-review" class="section level1">
+<h1>Fantasy Football Review</h1>
+<p>We recently wrapped up our 2020 Fantasy Football season. In a standard regular season long league, you draft your initial team of 15 players prior to the season as your foundation. Players that go undrafted are then moved to the <em>waiver wire</em>. There are several different methods leagues can do to organize this, our league uses a blind bidding system, sometimes referred to as <strong>FAAB</strong> (Free Agent Auction Budget).</p>
+<p>Every team starts with a $100 budget. Players that are on the waiver wire can be bid on following weekly games, with the transactions processing Tuesday night. The highest bidder will then receive rights to that player on their team.</p>
+<p>This provides an additional layer of strategy to the game. One thing I noticed this year, was just how poor of a job I did this season! I wasted a good portion of my budget on players that no one else placed bids on. (I may or may not have finished in last place this year…)</p>
+<center>
+<img src="/img/bids.png" title="fig:" alt="Sleeper Waiver Wire Summary" />
+</center>
+<p>On this particular day, I bid $10 on 2 different players that no other team bid on. Had I played it better, I could have had both of them for free. This is the added dimensionality FAAB brings.</p>
+<hr />
+<div id="sleeper" class="section level2">
+<h2>Sleeper</h2>
+<p>Our league used a platform <em>Sleeper</em> to host our Fantasy Football league. <a href="https://sleeper.app/">Sleeper</a></p>
+<p>I’ll go over how I accessed our leagues data, and created a couple of visualizations to show just how bad I was!</p>
+<hr />
+</div>
+<div id="workflow" class="section level2">
+<h2>Workflow</h2>
+<p>Import the necessary libraries</p>
+<pre class="r"><code>library(tidyverse) 
+library(rvest)
+library(jsonlite)
+library(httr)
+library(reticulate)
+library(ggtext)
+library(ggthemes)
+library(paletteer)
+library(gt)</code></pre>
+</div>
+<div id="setup-data" class="section level2">
+<h2>Setup Data</h2>
+<p>There are 16 weeks of games in Fantasy Football. I’ll be using Sleeper’s API to pull transactions from my league. The API only supports read functionality, so no harm in sharing my league id!</p>
+<p>The response found on <a href="https://docs.sleeper.app/#get-transactions">Sleeper’s documentation</a></p>
+<center>
+<img src="/img/league_transactions.png" />
+</center>
+<div id="below-is-the-call-for-week-1" class="section level5">
+<h5>Below is the call for week 1</h5>
+<pre class="r"><code>url = glue::glue(&#39;https://api.sleeper.app/v1/league/580173188063862784/transactions/1&#39;)
+res = httr::GET(url)
+res_json &lt;- rawToChar(res$content)
+df &lt;- jsonlite::fromJSON(res_json) %&gt;% 
+    as_tibble() %&gt;% 
+    janitor::clean_names() %&gt;% 
+    select(-starts_with(&quot;drops&quot;))
+
+head(df)</code></pre>
+<pre><code>## # A tibble: 6 x 14
+##   waiver_budget type  transaction_id status_updated status settings$waiver…
+##   &lt;list&gt;        &lt;chr&gt; &lt;chr&gt;                   &lt;dbl&gt; &lt;chr&gt;             &lt;int&gt;
+## 1 &lt;list [0]&gt;    waiv… 6118254650946…  1600272284877 failed                5
+## 2 &lt;list [0]&gt;    waiv… 6118150292930…  1600272284877 failed               14
+## 3 &lt;list [0]&gt;    waiv… 6117835891300…  1600272284877 compl…                0
+## 4 &lt;list [0]&gt;    waiv… 6117834665221…  1600358696203 failed                0
+## 5 &lt;list [0]&gt;    waiv… 6117831882468…  1600272284877 failed                6
+## 6 &lt;list [0]&gt;    waiv… 6117831288051…  1600272284877 failed                2
+## # … with 24 more variables: $seq &lt;int&gt;, $priority &lt;int&gt;, roster_ids &lt;list&gt;,
+## #   metadata$notes &lt;chr&gt;, leg &lt;int&gt;, draft_picks &lt;list&gt;, creator &lt;chr&gt;,
+## #   created &lt;dbl&gt;, consenter_ids &lt;list&gt;, adds$`3423` &lt;int&gt;, $`7045` &lt;int&gt;,
+## #   $CHI &lt;int&gt;, $`5872` &lt;int&gt;, $`6156` &lt;int&gt;, $`5110` &lt;int&gt;, $`4036` &lt;int&gt;,
+## #   $`5347` &lt;int&gt;, $TB &lt;int&gt;, $`2588` &lt;int&gt;, $`5122` &lt;int&gt;, $`6798` &lt;int&gt;,
+## #   $`6955` &lt;int&gt;, $`2257` &lt;int&gt;, $KC &lt;int&gt;</code></pre>
+<p>The response is a nested mess of JSON that needs to be parsed. Players added and dropped are stored as their player id and the roster id (which won’t be used for this analysis). The issues is that these will be stored as a nested data frame of the player ids as columns and roster id as rows.</p>
+<pre class="r"><code>kableExtra::kbl(head(df$adds, 7)) %&gt;% 
+  kableExtra::kable_styling()</code></pre>
+<table class="table" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:right;">
+3423
+</th>
+<th style="text-align:right;">
+7045
+</th>
+<th style="text-align:right;">
+CHI
+</th>
+<th style="text-align:right;">
+5872
+</th>
+<th style="text-align:right;">
+6156
+</th>
+<th style="text-align:right;">
+5110
+</th>
+<th style="text-align:right;">
+4036
+</th>
+<th style="text-align:right;">
+5347
+</th>
+<th style="text-align:right;">
+TB
+</th>
+<th style="text-align:right;">
+2588
+</th>
+<th style="text-align:right;">
+5122
+</th>
+<th style="text-align:right;">
+6798
+</th>
+<th style="text-align:right;">
+6955
+</th>
+<th style="text-align:right;">
+2257
+</th>
+<th style="text-align:right;">
+KC
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+</tbody>
+</table>
+<p>For this analysis, I do not need roster positions. All that is needed is the column names which are the id’s of the players added.</p>
+<hr />
+</div>
+<div id="flatten-the-data" class="section level5">
+<h5>Flatten the data</h5>
+<p>My solution, was to flatten the response, pivot longer which duplicated the transaction for all 10 league members. After that, filter out the NA values. This tidy’s the dataset by making each transaction a row of 1 player attempted to be added, with a status of Complete or Failed.</p>
+<pre class="r"><code>dfs &lt;- tibble()
+for (i in 1:16) {
+  url = glue::glue(&#39;https://api.sleeper.app/v1/league/580173188063862784/transactions/{i}&#39;)
+  res = httr::GET(url)
+  res_json &lt;- rawToChar(res$content)
+  df &lt;- jsonlite::fromJSON(res_json, flatten = T) %&gt;% 
+    as_tibble() %&gt;% 
+    janitor::clean_names() %&gt;% 
+    select(-starts_with(&quot;drops&quot;))
+  
+  df &lt;- df %&gt;% 
+    pivot_longer(
+      cols = starts_with(&quot;adds&quot;), 
+      names_to = &quot;add&quot;,
+      values_to = &quot;value1&quot;
+    ) 
+  df &lt;- df %&gt;% 
+    rename(bid = settings_waiver_bid) %&gt;% 
+    select(-waiver_budget, -roster_ids, -draft_picks, -consenter_ids, -starts_with(&quot;setting&quot;))
+  
+  df &lt;- df %&gt;% 
+  mutate(add = str_remove(add, &quot;adds_&quot;) %&gt;% str_to_upper())
+  
+  dfs &lt;- rbind(dfs, df)
+}
+
+dfs &lt;- dfs %&gt;% 
+  rename(week = leg) %&gt;% 
+  filter(!is.na(value1)) %&gt;% 
+  select(-status_updated, -value1)
+
+kableExtra::kbl(head(df, 10)) %&gt;% 
+  kableExtra::kable_styling()</code></pre>
+<table class="table" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left;">
+type
+</th>
+<th style="text-align:left;">
+transaction_id
+</th>
+<th style="text-align:right;">
+status_updated
+</th>
+<th style="text-align:left;">
+status
+</th>
+<th style="text-align:right;">
+leg
+</th>
+<th style="text-align:left;">
+creator
+</th>
+<th style="text-align:right;">
+created
+</th>
+<th style="text-align:right;">
+bid
+</th>
+<th style="text-align:left;">
+metadata_notes
+</th>
+<th style="text-align:left;">
+add
+</th>
+<th style="text-align:right;">
+value1
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+4718
+</td>
+<td style="text-align:right;">
+4
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+7090
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+2238
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+WAS
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+6801
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+6798
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+5004
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+5007
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+4175
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+free_agent
+</td>
+<td style="text-align:left;">
+648968934317584384
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:left;">
+complete
+</td>
+<td style="text-align:right;">
+16
+</td>
+<td style="text-align:left;">
+427499522336235520
+</td>
+<td style="text-align:right;">
+1.609089e+12
+</td>
+<td style="text-align:right;">
+NA
+</td>
+<td style="text-align:left;">
+NA
+</td>
+<td style="text-align:left;">
+2325
+</td>
+<td style="text-align:right;">
+NA
+</td>
+</tr>
+</tbody>
+</table>
+<hr />
+</div>
+</div>
+<div id="players-data" class="section level2">
+<h2>Player’s Data</h2>
+<p>Now, I absolutely <strong>LOVE</strong> #rstats for it’s ease of use with data, open community, and innovative way to optimize for human performance. However, when it comes to dealing with JSON data, I’m not as strong as I would like to be.</p>
+<p>Python was my entry into programming. Sometimes I need to fall back on that because I know how to work with certain data structures outside of dataframes better.</p>
+<p>Thankfully, with the help of the engineers at Rstudio, we can run Python <strong>AND</strong> R for one project. With {rmarkdown} &amp; {reticulate} I can leverage strengths of both languages, and pass data along to one another.</p>
+<p>To get the player’s information, I will call the API for players.</p>
+<center>
+<img src="/img/players.png" title="fig:" alt="players" />
+</center>
+<p><strong>*Important to note: the size is rather large, and Sleeper has requested that this call is done no more than once a day to update a database </strong></p>
+<div id="load-in-python-librarys" class="section level5">
+<h5>Load in Python Librarys</h5>
+<pre class="python"><code>import pandas as pd
+import requests</code></pre>
+<p>The response can be parsed as a python dictionary. By creating a pandas data frame from the response, every column will be a player with every row what would normally be a field.</p>
+<p>Easy enough, we can transpose the dataframe so that it is in the format needed to join.</p>
+<pre class="python"><code>r = requests.get(&quot;https://api.sleeper.app/v1/players/nfl&quot;)
+players = r.json()
+players = pd.DataFrame(players).T
+players = players.reset_index()
+players = players[[&#39;index&#39;,&#39;full_name&#39;,&#39;gsis_id&#39;,&#39;fantasy_positions&#39;,&#39;weight&#39;,&#39;team&#39;]]</code></pre>
+<hr />
+</div>
+</div>
+<div id="league-users" class="section level2">
+<h2>League Users</h2>
+<p>One of the fields in the transactions table is “Creator”. It is an id that can be paired with the username from the users table.</p>
+<pre class="python"><code>r = requests.get(&quot;https://api.sleeper.app/v1/league/580173188063862784/users&quot;)
+users = r.json()
+users = pd.DataFrame(users)</code></pre>
+<hr />
+</div>
+<div id="back-to-r" class="section level2">
+<h2>Back to R</h2>
+<p>Now that all the data needed for the analysis has been brought in, I’ll use {reticulate} to access the python data with R.</p>
+<pre class="r"><code>users &lt;- py$users %&gt;% 
+  as_tibble() %&gt;% 
+  select(avatar, display_name, user_id)</code></pre>
+<div id="moar-data-wrangling" class="section level3">
+<h3>MOAR DATA WRANGLING!</h3>
+<p>Eventually this data will be good to go.</p>
+<p>I originally found that passing the data from python to R created a regular data.frame() in R. When I used as_tibble(), it would create more nested structures, columns would contain numeric and character values which were formatted into lists.</p>
+<p>Steps:</p>
+<ol style="list-style-type: decimal">
+<li>Filter to only players that are in the transactions table.</li>
+<li>Get rid of unnecessary problematic columns</li>
+<li>Adjust types of columns</li>
+<li>Create tibble, which still would have each field containing a list of length 1</li>
+<li>Unnest list fields, since list was of length 1 the number of rows remained the same</li>
+</ol>
+<pre class="r"><code>pyplayers &lt;- py$players
+
+ids &lt;- dfs$add %&gt;% unique()
+ids &lt;- append(ids, df$drop %&gt;% unique())</code></pre>
+<pre><code>## Warning: Unknown or uninitialised column: `drop`.</code></pre>
+<pre class="r"><code>ids &lt;- unique(ids)
+
+pyplayers &lt;- pyplayers %&gt;% 
+  mutate(index = as.character(index)) %&gt;% 
+  filter(index %in% ids) %&gt;% 
+  select(-gsis_id, -weight) %&gt;% 
+  mutate(full_name = ifelse(is.na(full_name),&quot;&quot;,full_name)) %&gt;% 
+  as_tibble() %&gt;% 
+  unnest(full_name) %&gt;% 
+  unnest(team) %&gt;% 
+  unnest(fantasy_positions) %&gt;% 
+  mutate(full_name = ifelse(full_name == &quot;&quot;, team, full_name)) %&gt;% 
+  group_by(index) %&gt;% 
+  mutate(rn = row_number()) %&gt;% 
+  filter(rn == 1) </code></pre>
+</div>
+</div>
+<div id="join-data" class="section level2">
+<h2>Join Data</h2>
+<p>Finally! Now that the data is prepped, it is time to join them together to start analysis.</p>
+<pre class="r"><code>df &lt;- left_join(dfs, pyplayers, by=c(&quot;add&quot;=&quot;index&quot;)) 
+
+df &lt;- left_join(df, users, by=c(&quot;creator&quot; = &quot;user_id&quot;))</code></pre>
+</div>
+<div id="work-with-dataframe" class="section level2">
+<h2>Work with Dataframe</h2>
+<pre class="r"><code>df %&gt;% 
+  group_by(week, full_name) %&gt;% 
+  mutate(num_bids = n()) %&gt;% 
+  filter(num_bids == 1, status == &quot;complete&quot;) %&gt;% 
+  ungroup() %&gt;% 
+  group_by(display_name) %&gt;% 
+  summarise(no_opposition = sum(bid, na.rm = T),
+            player_amount = max(bid, na.rm = T), .groups = &#39;drop&#39;) %&gt;% 
+  kableExtra::kbl() %&gt;% 
+  kableExtra::kable_styling()</code></pre>
+<table class="table" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left;">
+display_name
+</th>
+<th style="text-align:right;">
+no_opposition
+</th>
+<th style="text-align:right;">
+player_amount
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+benmann26
+</td>
+<td style="text-align:right;">
+30
+</td>
+<td style="text-align:right;">
+10
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Callmedougfunny
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+2
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+DirtyMcCurdy
+</td>
+<td style="text-align:right;">
+21
+</td>
+<td style="text-align:right;">
+6
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+jcbryant12
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+manthony94
+</td>
+<td style="text-align:right;">
+46
+</td>
+<td style="text-align:right;">
+31
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+OnlyMike19
+</td>
+<td style="text-align:right;">
+21
+</td>
+<td style="text-align:right;">
+7
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+rplain
+</td>
+<td style="text-align:right;">
+72
+</td>
+<td style="text-align:right;">
+24
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+sauceboss91
+</td>
+<td style="text-align:right;">
+31
+</td>
+<td style="text-align:right;">
+8
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+waynemcfadin
+</td>
+<td style="text-align:right;">
+33
+</td>
+<td style="text-align:right;">
+31
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+ZachAttack14
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+6
+</td>
+</tr>
+</tbody>
+</table>
+<p>I am creating 3 dataframes to be joined together.</p>
+<ol style="list-style-type: decimal">
+<li>Bids where a user was the only person to bid</li>
+<li>What player each user “wasted” the most FAAB on</li>
+<li>Total amount of FAAB spent</li>
+</ol>
+<p>In addition, since I knew my leaguemates personally I went ahead and added their first names in the dataset.</p>
+<pre class="r"><code>lonesome_bids &lt;- df %&gt;% 
+  group_by(week, full_name) %&gt;% 
+  mutate(num_bids = n()) %&gt;% 
+  filter(num_bids == 1, status == &quot;complete&quot;) %&gt;% 
+  ungroup() %&gt;% 
+  group_by(display_name) %&gt;% 
+  summarise(no_opposition = sum(bid, na.rm = T),
+            .groups = &#39;drop&#39;) 
+
+highest_player &lt;- df %&gt;% 
+  group_by(week, full_name) %&gt;% 
+  mutate(num_bids = n()) %&gt;% 
+  filter(num_bids == 1, status == &quot;complete&quot;) %&gt;% 
+  ungroup() %&gt;% 
+  filter(bid &gt; 0) %&gt;% 
+  group_by(display_name, full_name) %&gt;% 
+  summarise(max_bid = max(bid), .groups = &#39;drop&#39;) %&gt;% 
+  group_by(display_name) %&gt;% 
+  arrange(-max_bid) %&gt;% 
+  mutate(rn = row_number()) %&gt;% 
+  filter(rn == 1) %&gt;% 
+  ungroup()
+
+total &lt;- df %&gt;% 
+  filter(status == &quot;complete&quot;) %&gt;%
+  group_by(display_name) %&gt;% 
+  summarise(total_spent = sum(bid, na.rm = T), .groups = &#39;drop&#39;)
+
+dat &lt;- inner_join(lonesome_bids, total) %&gt;% 
+  inner_join(., highest_player, by=&quot;display_name&quot;) %&gt;% 
+  mutate(display_name = case_when(
+    display_name == &quot;jcbryant12&quot; ~ &quot;Clayton&quot;,
+    display_name == &quot;rplain&quot; ~ &quot;Ryan&quot;,
+    display_name == &quot;ZachAttack14&quot; ~ &quot;Zach&quot;,
+    display_name == &quot;benmann26&quot; ~ &quot;Ben&quot;,
+    display_name == &quot;waynemcfadin&quot; ~ &quot;Wayne&quot;,
+    display_name == &quot;manthony94&quot; ~ &quot;Mitch&quot;,
+    display_name == &quot;DirtyMcCurdy&quot; ~ &quot;Connor&quot;,
+    display_name == &quot;sauceboss91&quot; ~ &quot;Tony&quot;,
+    display_name == &quot;OnlyMike19&quot; ~ &quot;Mike&quot;,
+    display_name == &quot;Callmedougfunny&quot; ~ &quot;Jacob&quot;,
+  )) </code></pre>
+<hr />
+</div>
+<div id="final-result" class="section level2">
+<h2>Final Result</h2>
+<p>Create a simple bar chart to compare each person’s spending.</p>
+<pre class="r"><code>p &lt;- dat %&gt;%   
+  ggplot(aes(reorder(display_name, total_spent))) +
+  geom_col(aes(y=total_spent), fill=&quot;#003399&quot;, width = 0.9, alpha=0.81) +
+  geom_col(aes(y=no_opposition), fill = &quot;#ff2b4f&quot;, width = 0.9, alpha=01) +
+  theme_fivethirtyeight() +
+  labs(
+    title = &#39;&lt;span style = &quot;color: #003399&quot;&gt;Total Bids&lt;/span&gt; vs Bids When &lt;span style = &quot;color: #ff2b4f&quot;&gt;No One Else Bid&lt;/span&gt;&#39;,
+    subtitle = &quot;Clayton, you know you can&#39;t roll the money over to next year right?!&quot;,
+    x=NULL,
+    y=NULL
+  ) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    plot.title = element_markdown(),
+    plot.subtitle = element_text(
+      size = 14
+    ),
+    axis.text.x = element_text(
+      size = 15, 
+      angle = 45, 
+      face = &quot;bold&quot;
+    )
+    ) +
+  scale_y_continuous(labels=scales::dollar_format()) +
+  scale_fill_manual(values = c(&quot;#ff2b4f&quot;, &quot;#003399&quot;)) </code></pre>
+<center>
+<p><img src="index_files/figure-html/unnamed-chunk-14-1.png" width="672" /></p>
+</center>
+<p>Wow! My name is Ryan, and I have a spending problem. I spent more budget on players that no one else bid on than half of the league did in total.</p>
+<pre class="r"><code>dat %&gt;% 
+  arrange(-no_opposition) %&gt;% 
+  select(Name = display_name, `Total Bid` = total_spent, Player = full_name, Bid = max_bid, `Only Bidder` = no_opposition) %&gt;% 
+  gt() %&gt;% 
+  data_color(
+    columns = vars(`Only Bidder`),
+    colors = scales::col_numeric(
+      palette = as.character(paletteer::paletteer_d(&quot;ggsci::red_material&quot;, n = 5)),
+      domain = NULL
+    )) %&gt;%  fmt_currency(
+    columns = vars(`Only Bidder`, `Total Bid`, Bid),
+    decimals = 0,
+  ) %&gt;% 
+  cols_align(
+    align = &quot;right&quot;,
+    columns = vars(`Only Bidder`, `Total Bid`, Bid)
+  ) %&gt;% 
+   tab_style(
+    style = list(
+      cell_borders(
+        sides = &quot;left&quot;,
+        color = &quot;black&quot;,
+        weight = px(3)
+      )
+    ),
+    locations = list(
+      cells_body(
+        columns = vars(`Only Bidder`)
+      )
+    )
+  ) %&gt;%
+  tab_style(
+    style = list(
+      cell_borders(
+        sides = &quot;bottom&quot;,
+        color = &quot;black&quot;,
+        weight = px(3)
+      )
+    ),
+    locations = list(
+      cells_column_labels(
+        columns = gt::everything()
+      )
+    )
+  ) %&gt;% 
+   cols_label(
+    `Total Bid` = &quot;Total Spent&quot;,
+    Name = &quot;&quot;
+  ) %&gt;% 
+  tab_header(
+    title = md(&quot;**Mistakes Were Made**&quot;),
+    subtitle = &quot;How much each person spent, along with who they wasted the most money on&quot;
+  )</code></pre>
+<style>html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+}
+
+#fqfsyvtzua .gt_table {
+  display: table;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#fqfsyvtzua .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 0;
+  padding-bottom: 4px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#fqfsyvtzua .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#fqfsyvtzua .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#fqfsyvtzua .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#fqfsyvtzua .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#fqfsyvtzua .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#fqfsyvtzua .gt_group_heading {
+  padding: 8px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#fqfsyvtzua .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#fqfsyvtzua .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#fqfsyvtzua .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#fqfsyvtzua .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#fqfsyvtzua .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 12px;
+}
+
+#fqfsyvtzua .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fqfsyvtzua .gt_first_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fqfsyvtzua .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#fqfsyvtzua .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding: 4px;
+}
+
+#fqfsyvtzua .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#fqfsyvtzua .gt_sourcenote {
+  font-size: 90%;
+  padding: 4px;
+}
+
+#fqfsyvtzua .gt_left {
+  text-align: left;
+}
+
+#fqfsyvtzua .gt_center {
+  text-align: center;
+}
+
+#fqfsyvtzua .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#fqfsyvtzua .gt_font_normal {
+  font-weight: normal;
+}
+
+#fqfsyvtzua .gt_font_bold {
+  font-weight: bold;
+}
+
+#fqfsyvtzua .gt_font_italic {
+  font-style: italic;
+}
+
+#fqfsyvtzua .gt_super {
+  font-size: 65%;
+}
+
+#fqfsyvtzua .gt_footnote_marks {
+  font-style: italic;
+  font-size: 65%;
+}
+</style>
+<div id="fqfsyvtzua" style="overflow-x:auto;overflow-y:auto;width:auto;height:auto;"><table class="gt_table">
+  <thead class="gt_header">
+    <tr>
+      <th colspan="5" class="gt_heading gt_title gt_font_normal" style><strong>Mistakes Were Made</strong></th>
+    </tr>
+    <tr>
+      <th colspan="5" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>How much each person spent, along with who they wasted the most money on</th>
+    </tr>
+  </thead>
+  <thead class="gt_col_headings">
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" style="border-bottom-width: 3px; border-bottom-style: solid; border-bottom-color: black;"></th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="border-bottom-width: 3px; border-bottom-style: solid; border-bottom-color: black;">Total Spent</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" style="border-bottom-width: 3px; border-bottom-style: solid; border-bottom-color: black;">Player</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="border-bottom-width: 3px; border-bottom-style: solid; border-bottom-color: black;">Bid</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="border-bottom-width: 3px; border-bottom-style: solid; border-bottom-color: black;">Only Bidder</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr>
+      <td class="gt_row gt_left">Ryan</td>
+      <td class="gt_row gt_right">$100</td>
+      <td class="gt_row gt_left">Joshua Kelley</td>
+      <td class="gt_row gt_right">$24</td>
+      <td class="gt_row gt_right" style="background-color: #EF5350; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$72</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Mitch</td>
+      <td class="gt_row gt_right">$71</td>
+      <td class="gt_row gt_left">Jeffery Wilson</td>
+      <td class="gt_row gt_right">$31</td>
+      <td class="gt_row gt_right" style="background-color: #EB8988; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$46</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Wayne</td>
+      <td class="gt_row gt_right">$57</td>
+      <td class="gt_row gt_left">Henry Ruggs</td>
+      <td class="gt_row gt_right">$31</td>
+      <td class="gt_row gt_right" style="background-color: #F5ABAC; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$33</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Tony</td>
+      <td class="gt_row gt_right">$85</td>
+      <td class="gt_row gt_left">Nyheim Hines</td>
+      <td class="gt_row gt_right">$8</td>
+      <td class="gt_row gt_right" style="background-color: #F7B1B3; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$31</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Ben</td>
+      <td class="gt_row gt_right">$50</td>
+      <td class="gt_row gt_left">Ryan Tannehill</td>
+      <td class="gt_row gt_right">$10</td>
+      <td class="gt_row gt_right" style="background-color: #F8B4B6; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$30</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Zach</td>
+      <td class="gt_row gt_right">$27</td>
+      <td class="gt_row gt_left">Robert Tonyan</td>
+      <td class="gt_row gt_right">$6</td>
+      <td class="gt_row gt_right" style="background-color: #FBBDC0; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$27</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Connor</td>
+      <td class="gt_row gt_right">$77</td>
+      <td class="gt_row gt_left">Brandin Cooks</td>
+      <td class="gt_row gt_right">$6</td>
+      <td class="gt_row gt_right" style="background-color: #FFCED3; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$21</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Mike</td>
+      <td class="gt_row gt_right">$91</td>
+      <td class="gt_row gt_left">D'Ernest Johnson</td>
+      <td class="gt_row gt_right">$7</td>
+      <td class="gt_row gt_right" style="background-color: #FFCED3; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$21</td>
+    </tr>
+    <tr>
+      <td class="gt_row gt_left">Jacob</td>
+      <td class="gt_row gt_right">$98</td>
+      <td class="gt_row gt_left">PHI</td>
+      <td class="gt_row gt_right">$2</td>
+      <td class="gt_row gt_right" style="background-color: #FFEBEE; color: #000000; border-left-width: 3px; border-left-style: solid; border-left-color: black;">$5</td>
+    </tr>
+  </tbody>
+  
+  
+</table></div>
+<hr />
+<p>That’s a wrap! Thanks for joining me on my first public project. I wanted to give a huge thanks to Thomas Mock and his blog <a href="https://themockup.blog/">The Mockup Blog</a>.</p>
+<p>He is an excellent resource, both with the site as well as on Twitter.</p>
+</div>
+</div>

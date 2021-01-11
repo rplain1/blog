@@ -25,7 +25,7 @@ Every team starts with a $100 budget. Players that are on the waiver wire can be
 This provides an additional layer of strategy to the game. One thing I noticed this year, was just how poor of a job I did this season! I wasted a good portion of my budget on players that no one else placed bids on. (I may or may not have finished in last place this year...)
 
 <center>
-![Sleeper Waiver Wire Summary](~/blog/static/img/bids.png)
+![Sleeper Waiver Wire Summary](/img/bids.png)
 </center>
 
 On this particular day, I bid $10 on 2 different players that no other team bid on. Had I played it better, I could have had both of them for free. This is the added dimensionality FAAB brings.
@@ -38,7 +38,7 @@ Our league used a platform *Sleeper* to host our Fantasy Football league. [Sleep
 
 I'll go over how I accessed our leagues data, and created a couple of visualizations to show just how bad I was!
 
-<!--
+
 ---
 
 ## Workflow
@@ -64,7 +64,7 @@ There are 16 weeks of games in Fantasy Football. I'll be using Sleeper's API to 
 
 The response found on [Sleeper's documentation](https://docs.sleeper.app/#get-transactions)
 
-<center>![](~/blog/static/img/league_transactions.png)</center>
+<center>![](/img/league_transactions.png)</center>
 
 ##### Below is the call for week 1
 
@@ -140,13 +140,13 @@ kableExtra::kbl(head(df, 10)) %>%
 
 Now, I absolutely **LOVE** #rstats for it's ease of use with data, open community, and innovative way to optimize for human performance. However, when it comes to dealing with JSON data, I'm not as strong as I would like to be. 
 
-Python was my entry into programming. Sometimes I need to fall back on that because I know how to work with certain data structures outside of data frames better. 
+Python was my entry into programming. Sometimes I need to fall back on that because I know how to work with certain data structures outside of dataframes better. 
 
 Thankfully, with the help of the engineers at Rstudio, we can run Python **AND** R for one project. With {rmarkdown} & {reticulate} I can leverage strengths of both languages, and pass data along to one another. 
 
 To get the player's information, I will call the API for players. 
 
-<center>![players](~/blog/static/img/players.png)</center>
+<center>![players](/img/players.png)</center>
 
 **\*Important to note: the size is rather large, and Sleeper has requested that this call is done no more than once a day to update a database **
 
@@ -207,7 +207,7 @@ Steps:
 2. Get rid of unnecessary problematic columns
 3. Adjust types of columns
 4. Create tibble, which still would have each field containing a list of length 1
-5. Unnest, since list was of length 1 the number of rows remained the same
+5. Unnest list fields, since list was of length 1 the number of rows remained the same
 
 
 ```{r}
@@ -422,5 +422,3 @@ dat %>%
 That's a wrap! Thanks for joining me on my first public project. I wanted to give a huge thanks to Thomas Mock and his blog [The Mockup Blog](https://themockup.blog/). 
 
 He is an excellent resource, both with the site as well as on Twitter. 
-
--->
